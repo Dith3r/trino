@@ -43,7 +43,7 @@ create them.
 ## `optimizer.distinct-aggregations-strategy`
 
 - **Type:** {ref}`prop-type-string`
-- **Allowed values:** `AUTOMATIC`, `MARK_DISTINCT`, `SINGLE_STEP`
+- **Allowed values:** `AUTOMATIC`, `MARK_DISTINCT`, `SINGLE_STEP`, `PRE_AGGREGATE`
 - **Default value:** `AUTOMATIC`
 - **Session property:** `distinct_aggregations_strategy`
 
@@ -52,6 +52,8 @@ The strategy to use for multiple distinct aggregations.
 This strategy will perform poorly if the number of distinct grouping keys is small.
 `MARK_DISTINCT` uses `MarkDistinct` for multiple distinct aggregations
 or for mix of distinct and non-distinct aggregations.
+`PRE_AGGREGATE` Computes distinct aggregations using a combination of aggregation
+and pre-aggregation steps.
 `AUTOMATIC` chooses the strategy automatically.
 
 Single-step strategy is preferred. However, for cases with limited concurrency due to
