@@ -33,7 +33,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Optional;
 import java.util.function.Function;
 
-import static io.trino.SystemSessionProperties.MARK_DISTINCT_STRATEGY;
+import static io.trino.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
 import static io.trino.SystemSessionProperties.OPTIMIZE_DISTINCT_AGGREGATIONS;
 import static io.trino.SystemSessionProperties.TASK_CONCURRENCY;
 import static io.trino.spi.type.BigintType.BIGINT;
@@ -254,15 +254,15 @@ public class TestMultipleDistinctAggregationToMarkDistinct
                         .addSymbolStatistics(key, SymbolStatsEstimate.builder().setDistinctValuesCount(1000 * clusterThreadCount).build()).build()).on(plan)
                 .doesNotFire();
 
-        // big NDV, mark_distinct_strategy = always
+        // big NDV, distinct_aggregations_strategy = mark_distinct
         tester().assertThat(new MultipleDistinctAggregationToMarkDistinct(DISTINCT_AGGREGATION_CONTROLLER))
-                .setSystemProperty(MARK_DISTINCT_STRATEGY, "always")
+                .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "mark_distinct")
                 .overrideStats(aggregationSourceId.toString(), PlanNodeStatsEstimate.builder().setOutputRowCount(1000 * clusterThreadCount).build())
                 .on(plan)
                 .matches(expectedMarkDistinct);
-        // small NDV, mark_distinct_strategy = none
+        // small NDV, distinct_aggregations_strategy != mark_distinct
         tester().assertThat(new MultipleDistinctAggregationToMarkDistinct(DISTINCT_AGGREGATION_CONTROLLER))
-                .setSystemProperty(MARK_DISTINCT_STRATEGY, "none")
+                .setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, "single_step")
                 .overrideStats(aggregationSourceId.toString(), PlanNodeStatsEstimate.builder().setOutputRowCount(2 * clusterThreadCount).build())
                 .on(plan)
                 .doesNotFire();
