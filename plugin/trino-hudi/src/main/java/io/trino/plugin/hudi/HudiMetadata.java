@@ -271,6 +271,13 @@ public class HudiMetadata
         }
     }
 
+    @Override
+    public boolean isColumnarTableScan(ConnectorSession session, ConnectorTableHandle tableHandle)
+    {
+        // hudi supports only a columnar (parquet) storage format
+        return true;
+    }
+
     HiveMetastore getMetastore()
     {
         return metastore;
