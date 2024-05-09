@@ -101,7 +101,7 @@ public class TestDistinctAggregationController
     }
 
     @Test
-    public void testMarkDistinctPreferredForLowCardinality2GroupByKeys()
+    public void testPreAggregatePreferredForLowCardinality2GroupByKeys()
     {
         DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
         SymbolAllocator symbolAllocator = new SymbolAllocator();
@@ -123,6 +123,7 @@ public class TestDistinctAggregationController
                                 Function.identity(),
                                 key -> SymbolStatsEstimate.builder().setDistinctValuesCount(10).build())))),
                 new SymbolAllocator());
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isTrue();
         assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isTrue();
     }
 
