@@ -22,14 +22,18 @@ import io.trino.cost.StatsProvider;
 import io.trino.cost.SymbolStatsEstimate;
 import io.trino.cost.TaskCountEstimator;
 import io.trino.execution.warnings.WarningCollector;
+import io.trino.metadata.TestingFunctionResolution;
+import io.trino.spi.predicate.TupleDomain;
 import io.trino.sql.planner.PlanNodeIdAllocator;
 import io.trino.sql.planner.Symbol;
 import io.trino.sql.planner.SymbolAllocator;
 import io.trino.sql.planner.iterative.Lookup;
 import io.trino.sql.planner.iterative.Rule;
 import io.trino.sql.planner.plan.AggregationNode;
+import io.trino.sql.planner.plan.AggregationNode.Aggregation;
 import io.trino.sql.planner.plan.PlanNode;
 import io.trino.sql.planner.plan.PlanNodeId;
+import io.trino.sql.planner.plan.TableScanNode;
 import io.trino.sql.planner.plan.ValuesNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -37,13 +41,22 @@ import org.junit.jupiter.api.parallel.Execution;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static io.trino.SessionTestUtils.TEST_SESSION;
+import static io.trino.SystemSessionProperties.DISTINCT_AGGREGATIONS_STRATEGY;
+import static io.trino.SystemSessionProperties.getTaskConcurrency;
 import static io.trino.spi.type.BigintType.BIGINT;
+import static io.trino.sql.analyzer.TypeSignatureProvider.fromTypes;
+import static io.trino.sql.planner.OptimizerConfig.DistinctAggregationsStrategy.MARK_DISTINCT;
+import static io.trino.sql.planner.OptimizerConfig.DistinctAggregationsStrategy.PRE_AGGREGATE;
+import static io.trino.sql.planner.OptimizerConfig.DistinctAggregationsStrategy.SINGLE_STEP;
 import static io.trino.sql.planner.plan.AggregationNode.singleAggregation;
 import static io.trino.sql.planner.plan.AggregationNode.singleGroupingSet;
+import static io.trino.testing.TestingHandles.TEST_TABLE_HANDLE;
+import static io.trino.testing.TestingSession.testSessionBuilder;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.TestInstance.Lifecycle.PER_CLASS;
 import static org.junit.jupiter.api.parallel.ExecutionMode.CONCURRENT;
@@ -54,6 +67,7 @@ public class TestDistinctAggregationController
 {
     private static final int NODE_COUNT = 6;
     private static final TaskCountEstimator TASK_COUNT_ESTIMATOR = new TaskCountEstimator(() -> NODE_COUNT);
+    private static final TestingFunctionResolution functionResolution = new TestingFunctionResolution();
 
     @Test
     public void testSingleStepPreferredForHighCardinalitySingleGroupByKey()
@@ -63,17 +77,13 @@ public class TestDistinctAggregationController
         Symbol groupingKey = symbolAllocator.newSymbol("groupingKey", BIGINT);
 
         ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
-        AggregationNode aggregationNode = singleAggregation(
-                new PlanNodeId("aggregation"),
-                source,
-                ImmutableMap.of(),
-                singleGroupingSet(ImmutableList.of(groupingKey)));
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(groupingKey), source, symbolAllocator);
         Rule.Context context = context(
                 ImmutableMap.of(source, new PlanNodeStatsEstimate(1_000_000, ImmutableMap.of(
                         groupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(1_000_000).build()))),
                 symbolAllocator);
 
-        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isFalse();
+        assertShouldUseSingleStep(controller, aggregationNode, context);
     }
 
     @Test
@@ -86,18 +96,14 @@ public class TestDistinctAggregationController
         Symbol highCardinalityGroupingKey = symbolAllocator.newSymbol("highCardinalityGroupingKey", BIGINT);
 
         ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
-        AggregationNode aggregationNode = singleAggregation(
-                new PlanNodeId("aggregation"),
-                source,
-                ImmutableMap.of(),
-                singleGroupingSet(ImmutableList.of(lowCardinalityGroupingKey, highCardinalityGroupingKey)));
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(lowCardinalityGroupingKey, highCardinalityGroupingKey), source, symbolAllocator);
         Rule.Context context = context(
                 ImmutableMap.of(source, new PlanNodeStatsEstimate(1_000_000, ImmutableMap.of(
                         lowCardinalityGroupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(10).build(),
                         highCardinalityGroupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(1_000_000).build()))),
                 symbolAllocator);
 
-        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isFalse();
+        assertShouldUseSingleStep(controller, aggregationNode, context);
     }
 
     @Test
@@ -111,11 +117,7 @@ public class TestDistinctAggregationController
                 symbolAllocator.newSymbol("key2", BIGINT));
 
         ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
-        AggregationNode aggregationNode = singleAggregation(
-                new PlanNodeId("aggregation"),
-                source,
-                ImmutableMap.of(),
-                singleGroupingSet(groupingKeys));
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(groupingKeys, source, symbolAllocator);
         Rule.Context context = context(
                 ImmutableMap.of(source, new PlanNodeStatsEstimate(
                         1_000_000,
@@ -124,7 +126,77 @@ public class TestDistinctAggregationController
                                 key -> SymbolStatsEstimate.builder().setDistinctValuesCount(10).build())))),
                 new SymbolAllocator());
         assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isTrue();
-        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isTrue();
+        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isFalse();
+    }
+
+    @Test
+    public void testPreAggregatePreferredForUnknownStatisticsAnd2GroupByKeys()
+    {
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+
+        List<Symbol> groupingKeys = ImmutableList.of(
+                symbolAllocator.newSymbol("key1", BIGINT),
+                symbolAllocator.newSymbol("key2", BIGINT));
+        ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(groupingKeys, source, symbolAllocator);
+        Rule.Context context = context(ImmutableMap.of(), new SymbolAllocator());
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isTrue();
+        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isFalse();
+    }
+
+    @Test
+    public void testPreAggregatePreferredForMediumCardinalitySingleGroupByKey()
+    {
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        Symbol groupingKey = symbolAllocator.newSymbol("groupingKey", BIGINT);
+
+        ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(groupingKey), source, symbolAllocator);
+        Rule.Context context = context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(NODE_COUNT * getTaskConcurrency(TEST_SESSION) * 10, ImmutableMap.of(
+                        groupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(NODE_COUNT * getTaskConcurrency(TEST_SESSION) * 10).build()))),
+                symbolAllocator);
+
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isTrue();
+    }
+
+    @Test
+    public void testSingleStepPreferredForMediumCardinality3GroupByKeys()
+    {
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        List<Symbol> groupingKeys = ImmutableList.of(
+                symbolAllocator.newSymbol("key1", BIGINT),
+                symbolAllocator.newSymbol("key2", BIGINT),
+                symbolAllocator.newSymbol("key3", BIGINT));
+
+        ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(groupingKeys, source, symbolAllocator);
+        Rule.Context context = context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(NODE_COUNT * getTaskConcurrency(TEST_SESSION) * 10,
+                        groupingKeys.stream().collect(toImmutableMap(
+                                Function.identity(),
+                                key -> SymbolStatsEstimate.builder().setDistinctValuesCount(NODE_COUNT * getTaskConcurrency(TEST_SESSION) * 10).build())))),
+                symbolAllocator);
+
+        assertShouldUseSingleStep(controller, aggregationNode, context);
+    }
+
+    @Test
+    public void testPreAggregatePreferredForGlobalAggregation()
+    {
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+
+        ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(), source, symbolAllocator);
+        Rule.Context context = context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(1_000_000, ImmutableMap.of())),
+                symbolAllocator);
+
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isTrue();
     }
 
     @Test
@@ -139,11 +211,7 @@ public class TestDistinctAggregationController
                 symbolAllocator.newSymbol("key3", BIGINT));
 
         ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
-        AggregationNode aggregationNode = singleAggregation(
-                new PlanNodeId("aggregation"),
-                source,
-                ImmutableMap.of(),
-                singleGroupingSet(groupingKeys));
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(groupingKeys, source, symbolAllocator);
         Rule.Context context = context(
                 ImmutableMap.of(source, new PlanNodeStatsEstimate(
                         1_000_000,
@@ -154,7 +222,94 @@ public class TestDistinctAggregationController
         assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isTrue();
     }
 
-    private static Rule.Context context(Map<PlanNode, PlanNodeStatsEstimate> stats, final SymbolAllocator symbolAllocator)
+    @Test
+    public void testMarkDistinctPreferredForUnknownStatisticsAnd3GroupByKeys()
+    {
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+
+        List<Symbol> groupingKeys = ImmutableList.of(
+                symbolAllocator.newSymbol("key1", BIGINT),
+                symbolAllocator.newSymbol("key2", BIGINT),
+                symbolAllocator.newSymbol("key3", BIGINT));
+        ValuesNode source = new ValuesNode(new PlanNodeId("source"), 1_000_000);
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(groupingKeys, source, symbolAllocator);
+        Rule.Context context = context(ImmutableMap.of(), new SymbolAllocator());
+        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isTrue();
+    }
+
+    @Test
+    public void testChoiceForcedByTheSessionProperty()
+    {
+        int clusterThreadCount = NODE_COUNT * getTaskConcurrency(TEST_SESSION);
+        DistinctAggregationController controller = new DistinctAggregationController(TASK_COUNT_ESTIMATOR);
+        SymbolAllocator symbolAllocator = new SymbolAllocator();
+        Symbol groupingKey = symbolAllocator.newSymbol("groupingKey", BIGINT);
+
+        TableScanNode source = new TableScanNode(new PlanNodeId("source"), TEST_TABLE_HANDLE, ImmutableList.of(), ImmutableMap.of(), TupleDomain.all(), Optional.empty(), false, Optional.empty());
+        AggregationNode aggregationNode = aggregationWithTwoDistinctAggregations(ImmutableList.of(groupingKey), source, symbolAllocator);
+
+        // big NDV, distinct_aggregations_strategy = mark_distinct
+        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(1000 * clusterThreadCount, ImmutableMap.of(
+                        groupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(1000 * clusterThreadCount).build()))),
+                testSessionBuilder().setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, MARK_DISTINCT.name()).build(),
+                symbolAllocator))).isTrue();
+
+        // big NDV, distinct_aggregations_strategy = pre-aggregate
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(1000 * clusterThreadCount, ImmutableMap.of(
+                        groupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(1000 * clusterThreadCount).build()))),
+                testSessionBuilder().setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, PRE_AGGREGATE.name()).build(),
+                symbolAllocator))).isTrue();
+
+        // small NDV, distinct_aggregations_strategy = single_step
+        assertShouldUseSingleStep(controller, aggregationNode, context(
+                ImmutableMap.of(source, new PlanNodeStatsEstimate(1000 * clusterThreadCount, ImmutableMap.of(
+                        groupingKey, SymbolStatsEstimate.builder().setDistinctValuesCount(1000 * clusterThreadCount).build()))),
+                testSessionBuilder().setSystemProperty(DISTINCT_AGGREGATIONS_STRATEGY, SINGLE_STEP.name()).build(),
+                symbolAllocator));
+    }
+
+    private static AggregationNode aggregationWithTwoDistinctAggregations(List<Symbol> groupingKeys, PlanNode source, SymbolAllocator symbolAllocator)
+    {
+        return singleAggregation(
+                new PlanNodeId("aggregation"),
+                source,
+                twoDistinctAggregations(symbolAllocator),
+                singleGroupingSet(groupingKeys));
+    }
+
+    private static Map<Symbol, Aggregation> twoDistinctAggregations(SymbolAllocator symbolAllocator)
+    {
+        return ImmutableMap.of(symbolAllocator.newSymbol("output1", BIGINT), new Aggregation(
+                        functionResolution.resolveFunction("sum", fromTypes(BIGINT)),
+                        ImmutableList.of(symbolAllocator.newSymbol("input1", BIGINT).toSymbolReference()),
+                        true,
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()),
+                symbolAllocator.newSymbol("output2", BIGINT), new Aggregation(
+                        functionResolution.resolveFunction("sum", fromTypes(BIGINT)),
+                        ImmutableList.of(symbolAllocator.newSymbol("input2", BIGINT).toSymbolReference()),
+                        true,
+                        Optional.empty(),
+                        Optional.empty(),
+                        Optional.empty()));
+    }
+
+    private static void assertShouldUseSingleStep(DistinctAggregationController controller, AggregationNode aggregationNode, Rule.Context context)
+    {
+        assertThat(controller.shouldAddMarkDistinct(aggregationNode, context)).isFalse();
+        assertThat(controller.shouldUsePreAggregate(aggregationNode, context)).isFalse();
+    }
+
+    private static Rule.Context context(Map<PlanNode, PlanNodeStatsEstimate> stats, SymbolAllocator symbolAllocator)
+    {
+        return context(stats, TEST_SESSION, symbolAllocator);
+    }
+
+    private static Rule.Context context(Map<PlanNode, PlanNodeStatsEstimate> stats, Session session, SymbolAllocator symbolAllocator)
     {
         PlanNodeIdAllocator planNodeIdAllocator = new PlanNodeIdAllocator();
         return new Rule.Context()
@@ -180,13 +335,13 @@ public class TestDistinctAggregationController
             @Override
             public Session getSession()
             {
-                return TEST_SESSION;
+                return session;
             }
 
             @Override
             public StatsProvider getStatsProvider()
             {
-                return stats::get;
+                return node -> stats.getOrDefault(node, PlanNodeStatsEstimate.unknown());
             }
 
             @Override
