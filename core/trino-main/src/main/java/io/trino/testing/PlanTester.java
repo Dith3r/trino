@@ -248,6 +248,7 @@ import static io.trino.util.EmbedVersion.testingVersionEmbedder;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.Executors.newCachedThreadPool;
 import static java.util.concurrent.Executors.newScheduledThreadPool;
+import static java.util.function.Function.identity;
 
 public class PlanTester
         implements Closeable
@@ -301,15 +302,20 @@ public class PlanTester
 
     public static PlanTester create(Session defaultSession)
     {
-        return new PlanTester(defaultSession, 1);
+        return new PlanTester(defaultSession, identity(), 1);
     }
 
     public static PlanTester create(Session defaultSession, int nodeCountForStats)
     {
-        return new PlanTester(defaultSession, nodeCountForStats);
+        return new PlanTester(defaultSession, identity(), nodeCountForStats);
     }
 
-    private PlanTester(Session defaultSession, int nodeCountForStats)
+    public static PlanTester create(Session defaultSession, Function<Metadata, Metadata> metadataDecorator, int nodeCountForStats)
+    {
+        return new PlanTester(defaultSession, metadataDecorator, nodeCountForStats);
+    }
+
+    private PlanTester(Session defaultSession, Function<Metadata, Metadata> metadataDecorator, int nodeCountForStats)
     {
         requireNonNull(defaultSession, "defaultSession is null");
 
@@ -348,12 +354,12 @@ public class PlanTester
         globalFunctionCatalog.addFunctions(SystemFunctionBundle.create(new FeaturesConfig(), typeOperators, blockTypeOperators, nodeManager.getCurrentNode().getNodeVersion()));
         TestingGroupProviderManager groupProvider = new TestingGroupProviderManager();
         LanguageFunctionManager languageFunctionManager = new LanguageFunctionManager(sqlParser, typeManager, groupProvider, blockEncodingSerde);
-        Metadata metadata = new MetadataManager(
+        Metadata metadata = metadataDecorator.apply(new MetadataManager(
                 new DisabledSystemSecurityMetadata(),
                 transactionManager,
                 globalFunctionCatalog,
                 languageFunctionManager,
-                typeManager);
+                typeManager));
         typeRegistry.addType(new JsonPath2016Type(new TypeDeserializer(typeManager), blockEncodingSerde));
         this.joinCompiler = new JoinCompiler(typeOperators);
         this.hashStrategyCompiler = new FlatHashStrategyCompiler(typeOperators);

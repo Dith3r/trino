@@ -130,6 +130,7 @@ public class OptimizerConfig
         SINGLE_STEP,
         MARK_DISTINCT,
         PRE_AGGREGATE,
+        SPLIT_TO_SUBQUERIES,
         AUTOMATIC,
     }
 
