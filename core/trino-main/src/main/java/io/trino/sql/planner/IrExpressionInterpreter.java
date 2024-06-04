@@ -19,12 +19,14 @@ import io.trino.metadata.Metadata;
 import io.trino.metadata.ResolvedFunction;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.BlockBuilder;
+import io.trino.spi.block.LazyResult;
 import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ConnectorSession;
 import io.trino.spi.function.CatalogSchemaFunctionName;
 import io.trino.spi.function.FunctionNullability;
 import io.trino.spi.function.OperatorType;
 import io.trino.spi.type.ArrayType;
+import io.trino.spi.type.LazyResultType;
 import io.trino.spi.type.MapType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
@@ -789,7 +791,7 @@ public class IrExpressionInterpreter
                     .map(field -> processWithExceptionHandling(field, context))
                     .toList();
 
-            if (fields.stream().allMatch(Constant.class::isInstance)) {
+            if (fields.stream().allMatch(obj -> obj instanceof Constant && !(obj.type() instanceof LazyResultType) )) {
                 RowType rowType = (RowType) node.type();
                 return new Constant(
                         rowType,
@@ -798,6 +800,12 @@ public class IrExpressionInterpreter
                                 writeNativeValue(fields.get(i).type(), builders.get(i), ((Constant) fields.get(i)).value());
                             }
                         }));
+            }
+            if (fields.stream().allMatch(obj -> obj instanceof Constant && (obj.type() instanceof LazyResultType))) {
+                LazyResult row = ((LazyResult) ((Constant)fields.getFirst()).value());
+                Optional<TrinoException> error = row.getError();
+                if (error.isPresent()) { throw error.get(); }
+                return fields.getFirst();
             }
 
             return new Row(fields);

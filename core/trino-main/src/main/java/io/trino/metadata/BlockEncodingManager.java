@@ -21,6 +21,7 @@ import io.trino.spi.block.Fixed12BlockEncoding;
 import io.trino.spi.block.Int128ArrayBlockEncoding;
 import io.trino.spi.block.IntArrayBlockEncoding;
 import io.trino.spi.block.LazyBlockEncoding;
+import io.trino.spi.block.LazyResultBlockEncoding;
 import io.trino.spi.block.LongArrayBlockEncoding;
 import io.trino.spi.block.MapBlockEncoding;
 import io.trino.spi.block.RowBlockEncoding;
@@ -52,6 +53,7 @@ public final class BlockEncodingManager
         addBlockEncoding(new ArrayBlockEncoding());
         addBlockEncoding(new MapBlockEncoding());
         addBlockEncoding(new RowBlockEncoding());
+        addBlockEncoding(new LazyResultBlockEncoding());
         addBlockEncoding(new RunLengthBlockEncoding());
         addBlockEncoding(new LazyBlockEncoding());
     }

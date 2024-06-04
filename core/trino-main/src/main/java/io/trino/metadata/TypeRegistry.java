@@ -36,6 +36,7 @@ import io.trino.spi.type.TypeSignatureParameter;
 import io.trino.sql.parser.SqlParser;
 import io.trino.type.CharParametricType;
 import io.trino.type.DecimalParametricType;
+import io.trino.type.LazyResultParametricType;
 import io.trino.type.Re2JRegexpType;
 import io.trino.type.VarcharParametricType;
 
@@ -96,6 +97,7 @@ import static io.trino.type.JoniRegexpType.JONI_REGEXP;
 import static io.trino.type.Json2016Type.JSON_2016;
 import static io.trino.type.JsonPathType.JSON_PATH;
 import static io.trino.type.JsonType.JSON;
+import static io.trino.type.LazyResultParametricType.LAZY_RESULT;
 import static io.trino.type.LikePatternType.LIKE_PATTERN;
 import static io.trino.type.MapParametricType.MAP;
 import static io.trino.type.RowParametricType.ROW;
@@ -165,6 +167,7 @@ public final class TypeRegistry
         addParametricType(TIMESTAMP_WITH_TIME_ZONE);
         addParametricType(TIME);
         addParametricType(TIME_WITH_TIME_ZONE);
+        addParametricType(LAZY_RESULT);
 
         parametricTypeCache = buildNonEvictableCache(CacheBuilder.newBuilder().maximumSize(1000));
 

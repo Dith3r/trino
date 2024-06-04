@@ -19,7 +19,10 @@ import io.airlift.slice.Slices;
 import io.trino.Session;
 import io.trino.json.ir.IrJsonPath;
 import io.trino.metadata.ResolvedFunction;
+import io.trino.operator.scalar.EvaluateLazyFunction;
+import io.trino.operator.scalar.EvaluateLazyResultFunction;
 import io.trino.operator.scalar.FormatFunction;
+import io.trino.operator.scalar.SaveEvaluateFunction;
 import io.trino.operator.scalar.TryFunction;
 import io.trino.plugin.base.util.JsonTypeUtil;
 import io.trino.spi.function.OperatorType;
@@ -27,6 +30,7 @@ import io.trino.spi.type.ArrayType;
 import io.trino.spi.type.DecimalParseResult;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.LazyResultType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.TimeType;
 import io.trino.spi.type.TimeWithTimeZoneType;
@@ -74,6 +78,7 @@ import io.trino.sql.tree.CurrentUser;
 import io.trino.sql.tree.DecimalLiteral;
 import io.trino.sql.tree.DereferenceExpression;
 import io.trino.sql.tree.DoubleLiteral;
+import io.trino.sql.tree.EvaluateExpression;
 import io.trino.sql.tree.Expression;
 import io.trino.sql.tree.Extract;
 import io.trino.sql.tree.Format;
@@ -107,6 +112,7 @@ import io.trino.sql.tree.NullIfExpression;
 import io.trino.sql.tree.NullLiteral;
 import io.trino.sql.tree.Parameter;
 import io.trino.sql.tree.Row;
+import io.trino.sql.tree.SaveEvaluateExpression;
 import io.trino.sql.tree.SearchedCaseExpression;
 import io.trino.sql.tree.SimpleCaseExpression;
 import io.trino.sql.tree.StringLiteral;
@@ -331,6 +337,8 @@ public class TranslationMap
                 case AtTimeZone expression -> translate(expression);
                 case Format expression -> translate(expression);
                 case TryExpression expression -> translate(expression);
+                case SaveEvaluateExpression expression -> translate(expression);
+                case EvaluateExpression expression -> translate(expression);
                 case LikePredicate expression -> translate(expression);
                 case Trim expression -> translate(expression);
                 case SubscriptExpression expression -> translate(expression);
@@ -908,6 +916,34 @@ public class TranslationMap
                 .setName(TryFunction.NAME)
                 .addArgument(new FunctionType(ImmutableList.of(), type), new Lambda(ImmutableList.of(), expression))
                 .build();
+    }
+
+    private io.trino.sql.ir.Expression translate(SaveEvaluateExpression node)
+    {
+        LazyResultType type = (LazyResultType) analysis.getType(node);
+        io.trino.sql.ir.Expression expression = translateExpression(node.getInnerExpression());
+
+        return BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
+                .setName(SaveEvaluateFunction.NAME)
+                .addArgument(new FunctionType(ImmutableList.of(), type.getType()), new Lambda(ImmutableList.of(), expression))
+                .build();
+    }
+
+    private io.trino.sql.ir.Expression translate(EvaluateExpression node)
+    {
+        Type type = analysis.getType(node);
+        io.trino.sql.ir.Expression expression = translateExpression(node.getInnerExpression());
+        if (expression instanceof Call) {
+            return BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
+                    .setName(EvaluateLazyFunction.NAME)
+                    .addArgument(new FunctionType(ImmutableList.of(), new LazyResultType(type)), new Lambda(ImmutableList.of(), expression))
+                    .build();
+        } else {
+            return BuiltinFunctionCallBuilder.resolve(plannerContext.getMetadata())
+                    .setName(EvaluateLazyResultFunction.NAME)
+                    .addArgument(new LazyResultType(type), expression)
+                    .build();
+        }
     }
 
     private io.trino.sql.ir.Expression translate(LikePredicate node)

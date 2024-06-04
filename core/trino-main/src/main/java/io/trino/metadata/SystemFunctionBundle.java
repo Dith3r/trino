@@ -126,6 +126,7 @@ import io.trino.operator.scalar.ConcatWsFunction;
 import io.trino.operator.scalar.DataSizeFunctions;
 import io.trino.operator.scalar.DateTimeFunctions;
 import io.trino.operator.scalar.EmptyMapConstructor;
+import io.trino.operator.scalar.EvaluateLazyResultFunction;
 import io.trino.operator.scalar.FailureFunction;
 import io.trino.operator.scalar.FormatNumberFunction;
 import io.trino.operator.scalar.GenericComparisonUnorderedFirstOperator;
@@ -162,6 +163,7 @@ import io.trino.operator.scalar.QuantileDigestFunctions;
 import io.trino.operator.scalar.Re2JRegexpFunctions;
 import io.trino.operator.scalar.Re2JRegexpReplaceLambdaFunction;
 import io.trino.operator.scalar.RepeatFunction;
+import io.trino.operator.scalar.SaveEvaluateFunction;
 import io.trino.operator.scalar.SequenceFunction;
 import io.trino.operator.scalar.SessionFunctions;
 import io.trino.operator.scalar.SplitToMapFunction;
@@ -288,6 +290,7 @@ import static io.trino.operator.scalar.ConcatFunction.VARBINARY_CONCAT;
 import static io.trino.operator.scalar.ConcatFunction.VARCHAR_CONCAT;
 import static io.trino.operator.scalar.ConcatWsFunction.CONCAT_WS;
 import static io.trino.operator.scalar.ElementToArrayConcatFunction.ELEMENT_TO_ARRAY_CONCAT_FUNCTION;
+import static io.trino.operator.scalar.EvaluateLazyFunction.EVALUATE_FUNCTION;
 import static io.trino.operator.scalar.FormatFunction.FORMAT_FUNCTION;
 import static io.trino.operator.scalar.Greatest.GREATEST;
 import static io.trino.operator.scalar.IdentityCast.IDENTITY_CAST;
@@ -512,6 +515,9 @@ public final class SystemFunctionBundle
                 .scalar(EmptyMapConstructor.class)
                 .scalar(TypeOfFunction.class)
                 .scalar(TryFunction.class)
+                .scalar(SaveEvaluateFunction.class)
+                .function(EVALUATE_FUNCTION)
+                .function(EvaluateLazyResultFunction.EVALUATE_FUNCTION)
                 .scalar(ConcatWsFunction.ConcatArrayWs.class)
                 .scalar(DynamicFilters.Function.class)
                 .scalar(DynamicFilters.NullableFunction.class)

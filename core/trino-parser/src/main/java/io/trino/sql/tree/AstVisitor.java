@@ -527,6 +527,16 @@ public abstract class AstVisitor<R, C>
         return visitExpression(node, context);
     }
 
+    protected R visitSaveEvaluateExpression(SaveEvaluateExpression node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
+    protected R visitEvaluateExpression(EvaluateExpression node, C context)
+    {
+        return visitExpression(node, context);
+    }
+
     protected R visitCast(Cast node, C context)
     {
         return visitExpression(node, context);

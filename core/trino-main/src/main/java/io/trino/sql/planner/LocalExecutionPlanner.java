@@ -155,6 +155,7 @@ import io.trino.spi.Page;
 import io.trino.spi.PageBuilder;
 import io.trino.spi.TrinoException;
 import io.trino.spi.block.Block;
+import io.trino.spi.block.LazyResult;
 import io.trino.spi.block.SqlRow;
 import io.trino.spi.connector.ColumnHandle;
 import io.trino.spi.connector.ConnectorIndex;
@@ -2116,12 +2117,21 @@ public class LocalExecutionPlanner
                     Expression row = node.getRows().get().get(i);
                     checkState(row.type() instanceof RowType, "unexpected type of Values row: %s", row.type());
                     // evaluate the literal value
-                    SqlRow result = (SqlRow) new IrExpressionInterpreter(row, plannerContext, session).evaluate();
-                    int rawIndex = result.getRawIndex();
-                    for (int j = 0; j < outputTypes.size(); j++) {
-                        // divide row into fields
-                        Block fieldBlock = result.getRawFieldBlock(j);
-                        writeNativeValue(outputTypes.get(j), pageBuilder.getBlockBuilder(j), readNativeValue(outputTypes.get(j), fieldBlock, rawIndex));
+                    Object rawResult = new IrExpressionInterpreter(row, plannerContext, session).evaluate();
+                    if (rawResult instanceof SqlRow result) {
+                        int rawIndex = result.getRawIndex();
+                        for (int j = 0; j < outputTypes.size(); j++) {
+                            // divide row into fields
+                            Block fieldBlock = result.getRawFieldBlock(j);
+                            writeNativeValue(outputTypes.get(j), pageBuilder.getBlockBuilder(j), readNativeValue(outputTypes.get(j), fieldBlock, rawIndex));
+                        }
+                    } else if (rawResult instanceof LazyResult lazyResult) {
+                        int rawIndex = lazyResult.getRawIndex();
+                        for (int j = 0; j < outputTypes.size(); j++) {
+                            // divide row into fields
+                            Block fieldBlock = lazyResult.getRawFieldBlock(j);
+                            writeNativeValue(outputTypes.get(j), pageBuilder.getBlockBuilder(j), readNativeValue(outputTypes.get(j), fieldBlock, rawIndex));
+                        }
                     }
                 }
             }

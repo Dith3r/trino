@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Iterables;
 import com.google.common.graph.SuccessorsFunction;
 import com.google.common.graph.Traverser;
+import io.trino.spi.type.LazyResultType;
 import io.trino.spi.type.Type;
 import io.trino.sql.planner.DeterminismEvaluator;
 import io.trino.sql.planner.Symbol;

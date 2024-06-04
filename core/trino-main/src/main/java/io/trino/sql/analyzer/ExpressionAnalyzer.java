@@ -41,6 +41,7 @@ import io.trino.spi.type.DateType;
 import io.trino.spi.type.DecimalParseResult;
 import io.trino.spi.type.DecimalType;
 import io.trino.spi.type.Decimals;
+import io.trino.spi.type.LazyResultType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.TimeType;
 import io.trino.spi.type.TimeWithTimeZoneType;
@@ -85,6 +86,7 @@ import io.trino.sql.tree.DataType;
 import io.trino.sql.tree.DecimalLiteral;
 import io.trino.sql.tree.DereferenceExpression;
 import io.trino.sql.tree.DoubleLiteral;
+import io.trino.sql.tree.EvaluateExpression;
 import io.trino.sql.tree.ExistsPredicate;
 import io.trino.sql.tree.Expression;
 import io.trino.sql.tree.Extract;
@@ -134,6 +136,7 @@ import io.trino.sql.tree.QueryColumn;
 import io.trino.sql.tree.RangeQuantifier;
 import io.trino.sql.tree.Row;
 import io.trino.sql.tree.RowPattern;
+import io.trino.sql.tree.SaveEvaluateExpression;
 import io.trino.sql.tree.SearchedCaseExpression;
 import io.trino.sql.tree.SimpleCaseExpression;
 import io.trino.sql.tree.SkipTo;
@@ -2332,6 +2335,31 @@ public class ExpressionAnalyzer
             }
 
             Type type = process(node.getInnerExpression(), context);
+            return setExpressionType(node, type);
+        }
+
+        @Override
+        public Type visitSaveEvaluateExpression(SaveEvaluateExpression node, Context context)
+        {
+            if (context.isPatternRecognition()) {
+                throw semanticException(NOT_SUPPORTED, node, "SAVE_EVALUATE expression in pattern recognition context is not yet supported");
+            }
+
+            Type type = new LazyResultType(process(node.getInnerExpression(), context));
+            return setExpressionType(node, type);
+        }
+
+        @Override
+        public Type visitEvaluateExpression(EvaluateExpression node, Context context)
+        {
+            if (context.isPatternRecognition()) {
+                throw semanticException(NOT_SUPPORTED, node, "EVALUATE expression in pattern recognition context is not yet supported");
+            }
+
+            Type type = process(node.getInnerExpression(), context);
+            if (type instanceof LazyResultType lazyResultType) {
+                type = lazyResultType.getType();
+            }
             return setExpressionType(node, type);
         }
 

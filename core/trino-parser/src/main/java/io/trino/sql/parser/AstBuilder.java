@@ -91,6 +91,7 @@ import io.trino.sql.tree.ElseIfClause;
 import io.trino.sql.tree.EmptyPattern;
 import io.trino.sql.tree.EmptyTableTreatment;
 import io.trino.sql.tree.EmptyTableTreatment.Treatment;
+import io.trino.sql.tree.EvaluateExpression;
 import io.trino.sql.tree.Except;
 import io.trino.sql.tree.ExcludedPattern;
 import io.trino.sql.tree.Execute;
@@ -233,6 +234,7 @@ import io.trino.sql.tree.Row;
 import io.trino.sql.tree.RowDataType;
 import io.trino.sql.tree.RowPattern;
 import io.trino.sql.tree.SampledRelation;
+import io.trino.sql.tree.SaveEvaluateExpression;
 import io.trino.sql.tree.SaveMode;
 import io.trino.sql.tree.SearchedCaseExpression;
 import io.trino.sql.tree.SecurityCharacteristic;
@@ -2921,6 +2923,27 @@ class AstBuilder
             check(filter.isEmpty(), "FILTER not valid for 'try' function", context);
 
             return new TryExpression(getLocation(context), (Expression) visit(getOnlyElement(context.expression())));
+        }
+
+        if (name.toString().equalsIgnoreCase("save_evaluate")) {
+            check(context.expression().size() == 1, "The 'save_evaluate' function must have exactly one argument", context);
+            check(window.isEmpty(), "OVER clause not valid for 'save_evaluate' function", context);
+            check(!distinct, "DISTINCT not valid for 'save_evaluate' function", context);
+            check(nullTreatment == null, "Null treatment clause not valid for 'save_evaluate' function", context);
+            check(processingMode == null, "Running or final semantics not valid for 'save_evaluate' function", context);
+            check(filter.isEmpty(), "FILTER not valid for 'save_evaluate' function", context);
+
+            return new SaveEvaluateExpression(getLocation(context), (Expression) visit(getOnlyElement(context.expression())));
+        }
+        if (name.toString().equalsIgnoreCase("evaluate")) {
+            check(context.expression().size() == 1, "The 'save_evaluate' function must have exactly one argument", context);
+            check(window.isEmpty(), "OVER clause not valid for 'save_evaluate' function", context);
+            check(!distinct, "DISTINCT not valid for 'save_evaluate' function", context);
+            check(nullTreatment == null, "Null treatment clause not valid for 'save_evaluate' function", context);
+            check(processingMode == null, "Running or final semantics not valid for 'save_evaluate' function", context);
+            check(filter.isEmpty(), "FILTER not valid for 'save_evaluate' function", context);
+
+            return new EvaluateExpression(getLocation(context), (Expression) visit(getOnlyElement(context.expression())));
         }
 
         if (name.toString().equalsIgnoreCase("format")) {

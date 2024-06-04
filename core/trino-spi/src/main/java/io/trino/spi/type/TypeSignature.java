@@ -195,6 +195,11 @@ public final class TypeSignature
         return new TypeSignature(StandardTypes.MAP, typeParameter(keyType), typeParameter(valueType));
     }
 
+    public static TypeSignature lazyResultType(TypeSignature valueType)
+    {
+        return new TypeSignature(StandardTypes.LAZY_RESULT, typeParameter(valueType));
+    }
+
     public static TypeSignature parametricType(String name, TypeSignature... parameters)
     {
         return new TypeSignature(

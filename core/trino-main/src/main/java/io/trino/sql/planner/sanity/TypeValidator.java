@@ -17,6 +17,7 @@ import com.google.common.collect.ListMultimap;
 import io.trino.Session;
 import io.trino.execution.warnings.WarningCollector;
 import io.trino.spi.function.BoundSignature;
+import io.trino.spi.type.LazyResultType;
 import io.trino.spi.type.RowType;
 import io.trino.spi.type.Type;
 import io.trino.sql.PlannerContext;
